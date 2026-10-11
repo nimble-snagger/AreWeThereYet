@@ -2,7 +2,9 @@
 
 A phone web app that shows live progress along a pre-planned walking route, big enough to read from a few metres away. It was built for the Cotswold Marathon (a night walking event) so teammates behind can see how far there is to go.
 
-It works offline once loaded, uses only the phone's GPS, and is hosted for free on GitHub Pages. Current version: **v0.4.1**.
+It works offline once loaded, uses only the phone's GPS, and is hosted for free on GitHub Pages. Live app: **https://nimble-snagger.github.io/AreWeThereYet/**
+
+Current version: **v0.5.0**.
 
 ## What it does
 
@@ -26,26 +28,37 @@ It works offline once loaded, uses only the phone's GPS, and is hosted for free 
 ## Choosing routes
 
 - Tap the **Route** button (bottom of the screen) to open the route list. Tap a route to load it.
-- If no route has been chosen yet, or the saved one no longer exists, the list opens automatically. The exception is when only one route is bundled: the app opens straight onto it.
-- The bundled route is **Cotswold Marathon Bronze** (about 10 miles), exported from OS Maps.
+- If no route has been chosen yet, or the saved one no longer exists, the list opens automatically. The exception is when there is only one route available (just the bundled one): the app opens straight onto it.
 - Switching to a different route part-way through asks for confirmation and resets progress. It then finds your position along the new route from the next GPS fix.
+- The bundled route is **Cotswold Marathon Bronze** (about 10 miles), exported from OS Maps.
 
-### Adding routes
+### Routes in the repo (bundled)
 
 1. Put one or more `.gpx` files in the `routes/` folder and commit.
 2. The GitHub Action in `.github/workflows/update-routes.yml` rebuilds `routes/routes.json` (the list the app reads) automatically.
 3. Open the app once with a signal. It picks up the new list and caches every route for offline use.
 
-Each route's display name comes from the `<name>` inside the GPX (falling back to the filename). The route length is calculated for you.
+Each route's display name comes from the `<name>` inside the GPX (falling back to the filename). The route length is calculated for you. If you edit an existing GPX, open the app online twice to be sure the phone has the new copy.
 
-If you edit an existing GPX, open the app online twice to be sure the phone has the new copy.
+### Routes added on the phone
+
+Open the route list and use **Add a route**:
+
+- **Choose a GPX file** opens the Files picker (iCloud, Downloads, AirDrop, email attachments and so on).
+- **Add from link** downloads a GPX from a web address. The site has to allow it: GitHub links work (including normal `github.com/.../blob/...` links), but many file-sharing links do not. If a link fails, download the file and use the file picker instead.
+
+Added routes are labelled "on this phone only" and have a **Remove** button. They work offline.
+
+**Important: added routes are not permanently saved.** They are stored only on that phone, inside the app. They will be lost if you delete the Home Screen icon, clear Safari's website data, or iOS clears the storage. Always keep a copy of the GPX file somewhere safe so you can add it again. Safari and the Home Screen app store routes separately, so add routes from inside the Home Screen app. Routes in the repo are not affected by any of this.
+
+When a route is added, points closer than 3 m together are dropped to keep it small, and the names (only the names) of any named waypoints are kept for later use.
 
 ## Setting it up
 
 1. Create the repo and upload everything in this folder, including the hidden `.github` folder. (The browser upload skips hidden folders, so create `.github/workflows/update-routes.yml` with **Add file → Create new file**, or use GitHub Desktop or git.)
 2. **Settings → Pages:** deploy from branch `main`, folder `/ (root)`.
 3. **Settings → Actions → General → Workflow permissions:** choose "Read and write permissions" (the Action commits `routes.json` back to the repo). Run the "Update route list" workflow once from the Actions tab to check it works.
-4. The app is at `https://<your-username>.github.io/<repo-name>/`.
+4. The app is at https://nimble-snagger.github.io/AreWeThereYet/ (for another repo, `https://<your-username>.github.io/<repo-name>/`).
 
 Because the Action commits to the repo, run `git pull` before your next local push.
 
@@ -75,7 +88,7 @@ You can also run `node scripts/build-routes.mjs` yourself to rebuild the list.
 
 ## Offline behaviour
 
-The app and all listed routes are cached on the phone, so it keeps working with no signal. The route list is fetched fresh first, with a short timeout, so new routes appear quickly. When you change `index.html`, bump `CACHE` in `sw.js` so phones pick up the new version promptly.
+The app and all listed routes are cached on the phone, so it keeps working with no signal. The route list is fetched fresh first, with a short timeout, so new routes appear quickly. The service worker ignores links added from other sites, so those are never cached. When you change `index.html`, bump `CACHE` in `sw.js` so phones pick up the new version promptly.
 
 ## Small settings in the code
 
@@ -84,34 +97,39 @@ The app and all listed routes are cached on the phone, so it keeps working with 
 
 ## Version history
 
+**v0.5.0**
+- Add routes from the phone: pick a GPX file, or paste a link. Added routes are saved on the phone, work offline, and can be removed.
+- Clear warning that added routes are stored only on the phone and can be lost; keep a copy of the GPX elsewhere.
+- Route list now shows added routes alongside the bundled one.
+- Service worker no longer touches requests to other sites.
+
 **v0.4.1**
 - Bundled route is now the Cotswold Marathon Bronze route (`routes/CotswoldMarathonBronze_Track.gpx`); the local test route has been removed.
 - If there is only one route, the app loads it automatically instead of showing a list of one.
 
-**v0.04**
+**v0.4.0** (previously called v0.04)
 - Percentage now sits inside a much larger bar, with text that changes colour across the fill.
 - Percentage moves in 0.2% steps, one decimal place, rounded down.
 - Display alternates between percentage complete and distance to go every 5 seconds.
 - Home Screen label shortened to "AWTY?".
 - Removed the separate "done / to go" row; the bar now uses that space.
 
-**v0.03**
+**v0.3.0** (previously v0.03)
 - Multiple routes: add GPX files to `routes/` and pick between them with the Route button.
 - Route list generated automatically by a GitHub Action.
 - Remembers the last route; shows the list if none is chosen.
 - All routes cached for offline use.
 - Renamed the app to "Are we there yet?".
 
-**v0.02**
+**v0.2.0** (previously v0.02)
 - Single route (`route.gpx`) with a progress bar, distance done and to go, GPS status, offline support, and handling for routes whose start and finish are close together.
 
-**v0.01**
+**v0.1.0** (previously v0.01)
 - First alpha: total distance progress bar from a provided GPX file.
 
 ## Planned
 
-- Add routes from the device (file picker) or a pasted URL, as well as the repo list.
-- A second bar tracking progress between checkpoints, in whole percentages, with the checkpoint's name shown. Checkpoints will be the **named** waypoints in the GPX; unnamed waypoints (OS Maps creates one for every point dropped with snapping off) are ignored. Either the OS Maps "track" or "route" export works.
+- **v0.6.0:** a second bar tracking progress between checkpoints, in whole percentages, with the checkpoint's name shown. Checkpoints will be the **named** waypoints in the GPX; unnamed waypoints (OS Maps creates one for every point dropped with snapping off) are ignored. Either the OS Maps "track" or "route" export works.
 - Possible later: pace and ETA.
 
 Waypoints in the GPX are currently ignored; only the route line is used.

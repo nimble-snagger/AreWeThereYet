@@ -39,6 +39,17 @@ body{display:flex;flex-direction:column;justify-content:space-between;
 #picker button.cur{border-color:var(--green)}
 #picker button.x{background:none;border:1px solid var(--dim);color:var(--dim);text-align:center;font-size:min(5vw,3.4vh);font-weight:600}
 #picker p{color:var(--warn);font-size:min(5vw,3.4vh);font-weight:600}
+#picker .row{display:flex;gap:2vw;align-items:stretch;margin:0 0 2vh}
+#picker .row button{margin:0}
+#picker .row button.rt{flex:1 1 auto;width:auto}
+#picker .row button.rm{flex:0 0 auto;width:auto;padding:0 4vw;text-align:center;background:none;border:1px solid var(--dim);color:var(--dim);font-size:min(4vw,2.6vh);font-weight:600}
+#picker h3{margin:2.2em 0 .7em;font-size:min(5.4vw,3.6vh);font-weight:800}
+#picker button.act{text-align:center;font-size:min(5vw,3.4vh);font-weight:700}
+#picker input{display:block;width:100%;margin:0 0 2vh;padding:1.8vh 3vw;font:inherit;font-size:17px;color:var(--ink);background:#0a1a10;
+ border:2px solid var(--track);border-radius:3vw;-webkit-user-select:text;user-select:text;-webkit-appearance:none}
+#picker .msg{margin:.4em 0 1em;font-size:min(4.4vw,3vh);font-weight:600;color:var(--green)}
+#picker .msg.err{color:var(--warn)}
+#picker .note{margin:.4em 0 2.4vh;font-size:min(3.8vw,2.5vh);font-weight:500;line-height:1.45;color:var(--dim)}
 </style>
 </head>
 <body>
@@ -56,9 +67,9 @@ body{display:flex;flex-direction:column;justify-content:space-between;
 <script>
 (function(){
 'use strict';
-var VERSION='v0.4.1', MI=1609.344, R=6371008.8, DIR='routes/', KEY='rt.route';
+var VERSION='v0.5.0', MI=1609.344, R=6371008.8, DIR='routes/', KEY='rt.route';
 var route=null,total=0,shown=0,last=null,offCount=0,useKm=false;
-var routes=null,cur=null,curName='',routeMsg='Loading route…',loadId=0;
+var routes=null,cur=null,curName='',routeMsg='Loading route…',loadId=0,userRoutes=[],pickMsg=null,msgEl=null;
 var lastFixT=0,acc=null,dev=null,gpsMsg='',simT=null,off=false;
 function $(i){return document.getElementById(i)}
 function rad(x){return x*Math.PI/180}
@@ -67,12 +78,39 @@ function hav(a,b){
  var h=Math.pow(Math.sin(dl/2),2)+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.pow(Math.sin(dn/2),2);
  return 2*R*Math.asin(Math.sqrt(h));
 }
-function parse(txt){
- var d=new DOMParser().parseFromString(txt,'application/xml');
+function r6(x){return Math.round(x*1e6)/1e6}
+function ptsFrom(d){
  var n=d.getElementsByTagName('trkpt'); if(!n.length) n=d.getElementsByTagName('rtept');
  var p=[];
- for(var i=0;i<n.length;i++) p.push([parseFloat(n[i].getAttribute('lat')),parseFloat(n[i].getAttribute('lon'))]);
+ for(var i=0;i<n.length;i++){
+  var a=parseFloat(n[i].getAttribute('lat')),o=parseFloat(n[i].getAttribute('lon'));
+  if(isFinite(a)&&isFinite(o)) p.push([a,o]);
+ }
  return p;
+}
+function parse(txt){return ptsFrom(new DOMParser().parseFromString(txt,'application/xml'));}
+// Full parse for routes added on the phone: points, a display name, and the names of any named waypoints
+function parseFull(txt){
+ var d=new DOMParser().parseFromString(txt,'application/xml');
+ if(d.getElementsByTagName('parsererror').length) throw new Error('xml');
+ var name='',nm,md=d.getElementsByTagName('metadata')[0];
+ if(md){nm=md.getElementsByTagName('name')[0]; if(nm) name=nm.textContent.trim();}
+ if(!name){var t=d.getElementsByTagName('trk')[0]||d.getElementsByTagName('rte')[0]; nm=t&&t.getElementsByTagName('name')[0]; if(nm) name=nm.textContent.trim();}
+ var w=[],ws=d.getElementsByTagName('wpt');
+ for(var i=0;i<ws.length;i++){
+  var wn=ws[i].getElementsByTagName('name')[0],wt=wn?wn.textContent.trim():'';
+  if(!wt) continue;
+  var la=parseFloat(ws[i].getAttribute('lat')),lo=parseFloat(ws[i].getAttribute('lon'));
+  if(isFinite(la)&&isFinite(lo)) w.push({n:wt,lat:r6(la),lon:r6(lo)});
+ }
+ return {pts:ptsFrom(d),name:name,wpts:w};
+}
+// Drop points closer than 3 m to the previous kept point (keeps stored routes small)
+function thin(p){
+ var o=[p[0]],i,l=p[p.length-1];
+ for(i=1;i<p.length-1;i++) if(hav(o[o.length-1],p[i])>=3) o.push(p[i]);
+ if(hav(o[o.length-1],l)>0) o.push(l);
+ return o;
 }
 function build(p){
  var kx=111320*Math.cos(rad(p[0][0])),ky=110540;
@@ -180,7 +218,21 @@ window.resetProgress=function(){shown=0;last=null;offCount=0;off=false;dev=null;
 window.toggleUnits=function(){useKm=!useKm;};
 
 function store(v){try{localStorage.setItem(KEY,v)}catch(e){}}
+function unstore(){try{localStorage.removeItem(KEY)}catch(e){}}
 function fetchTxt(u){return fetch(u).then(function(r){if(!r.ok) throw new Error('http');return r.text()})}
+function loadUser(){
+ try{
+  var l=JSON.parse(localStorage.getItem('rt.user')||'[]');
+  return Array.isArray(l)?l.filter(function(r){return r&&r.id&&r.pts&&r.pts.length>1}):[];
+ }catch(e){return [];}
+}
+function saveUser(){try{localStorage.setItem('rt.user',JSON.stringify(userRoutes));return true;}catch(e){return false;}}
+// Bundled routes (from routes/routes.json) first, then routes added on this phone
+function allRoutes(){
+ var a=(routes||[]).map(function(r){return {key:r.file,file:r.file,name:r.name,m:r.m};});
+ userRoutes.forEach(function(r){a.push({key:'user:'+r.id,id:r.id,name:r.name,m:r.m,pts:r.pts,user:true});});
+ return a;
+}
 function loadRoute(f,name){
  var id=++loadId;
  if(simT){clearInterval(simT);simT=null;}
@@ -191,40 +243,114 @@ function loadRoute(f,name){
   build(p);routeMsg='';store(f);
  }).catch(function(){if(id===loadId) routeMsg='Route file failed to load';});
 }
-function selectRoute(r){
- if(route&&r.file===cur){hidePicker();return;}
- if(route&&shown>0&&!confirm('Switch route? Progress will reset.')) return;
- hidePicker();loadRoute(r.file,r.name);
+function loadUserRoute(r){
+ ++loadId;
+ if(simT){clearInterval(simT);simT=null;}
+ route=null;total=0;resetProgress();cur='user:'+r.id;curName=r.name;
+ build(r.pts);routeMsg='';store(cur);
 }
-function hidePicker(){$('picker').style.display='none';}
-window.showPicker=function(){
- var p=$('picker'),b,i;
- p.innerHTML='';
- b=document.createElement('h1');b.textContent='Are we there yet?';p.appendChild(b);
- b=document.createElement('h2');b.textContent='Choose a route';p.appendChild(b);
- if(!routes||!routes.length){
-  b=document.createElement('p');b.textContent=routes?'No routes found':'Could not load the route list';p.appendChild(b);
- }else routes.forEach(function(r){
-  var el=document.createElement('button'),s=document.createElement('small');
-  el.textContent=r.name;s.textContent=fmt(r.m,r.m);el.appendChild(s);
-  if(r.file===cur) el.className='cur';
-  el.onclick=function(){selectRoute(r)};
-  p.appendChild(el);
+function openRoute(r){if(r.pts) loadUserRoute(r); else loadRoute(r.file,r.name);}
+function selectRoute(r){
+ if(route&&r.key===cur){hidePicker();return;}
+ if(route&&shown>0&&!confirm('Switch route? Progress will reset.')) return;
+ hidePicker();openRoute(r);
+}
+function hidePicker(){pickMsg=null;$('picker').style.display='none';}
+function setMsg(t,err){
+ pickMsg=t?{t:t,e:!!err}:null;
+ if(msgEl){msgEl.textContent=t||'';msgEl.className='msg'+(err?' err':'');}
+}
+function importGpx(txt,fallback){
+ var g=parseFull(txt),p=g.pts;
+ if(p.length<2) throw new Error('empty');
+ p=thin(p); if(p.length<2) throw new Error('empty');
+ var m=0,i;
+ for(i=1;i<p.length;i++) m+=hav(p[i-1],p[i]);
+ var rec={id:Date.now().toString(36)+Math.floor(Math.random()*1296).toString(36),
+  name:g.name||fallback||'Added route',m:Math.round(m),
+  pts:p.map(function(q){return [r6(q[0]),r6(q[1])];}),w:g.wpts};
+ userRoutes.push(rec);
+ if(!saveUser()){userRoutes.pop();throw new Error('storage');}
+ return rec;
+}
+function addText(txt,fallback){
+ var rec;
+ try{rec=importGpx(txt,fallback);}
+ catch(e){
+  setMsg(e&&e.message==='storage'?'Could not save: this app\u2019s storage is full. Remove a route and try again.':'That does not look like a GPX route.',true);
+  return;
+ }
+ setMsg('Added \u201c'+rec.name+'\u201d. It is stored on this phone only.',false);
+ showPicker();
+}
+function safeDecode(s){try{return decodeURIComponent(s);}catch(e){return s;}}
+function addUrl(raw){
+ var u=(raw||'').trim();
+ if(!/^https?:\/\//i.test(u)){setMsg('Enter a full web address starting with https://',true);return;}
+ var m=/^https?:\/\/github\.com\/([^\/]+)\/([^\/]+)\/blob\/(.+)$/i.exec(u);
+ if(m) u='https://raw.githubusercontent.com/'+m[1]+'/'+m[2]+'/'+m[3];
+ setMsg('Downloading\u2026',false);
+ fetchTxt(u).then(function(t){
+  addText(t,safeDecode((u.split('?')[0].split('/').pop()||'').replace(/\.gpx$/i,''))||'Added route');
+ },function(){
+  setMsg('Could not download that link. The site may not allow it, or you may be offline. Download the file and use \u201cChoose a GPX file\u201d instead.',true);
  });
- if(route){b=document.createElement('button');b.className='x';b.textContent='Cancel';b.onclick=hidePicker;p.appendChild(b);}
+}
+function removeRoute(r){
+ if(!confirm('Remove \u201c'+r.name+'\u201d from this phone? You will need the GPX file to add it again.')) return;
+ userRoutes=userRoutes.filter(function(x){return x.id!==r.id;});
+ saveUser();
+ if(cur==='user:'+r.id){route=null;total=0;resetProgress();cur=null;curName='';routeMsg='Choose a route';unstore();}
+ showPicker();
+}
+window.showPicker=function(){
+ var p=$('picker'),i,fi,u;
+ p.innerHTML='';
+ function el(tag,cls,txt,parent){
+  var e=document.createElement(tag); if(cls) e.className=cls; if(txt!==undefined) e.textContent=txt;
+  (parent||p).appendChild(e); return e;
+ }
+ el('h1','','Are we there yet?'); el('h2','','Choose a route');
+ var list=allRoutes();
+ if(!routes) el('p','','Could not load the built-in route list');
+ else if(!list.length) el('p','','No routes found');
+ list.forEach(function(r){
+  var row=el('div','row'),b=el('button','rt'+(r.key===cur?' cur':''),r.name,row);
+  el('small','',fmt(r.m,r.m)+(r.user?' \u00b7 on this phone only':''),b);
+  b.onclick=function(){selectRoute(r)};
+  if(r.user){var x=el('button','rm','Remove',row);x.onclick=function(){removeRoute(r)};}
+ });
+ el('h3','','Add a route');
+ fi=el('input'); fi.type='file'; fi.style.display='none';
+ fi.onchange=function(){
+  var f=fi.files&&fi.files[0]; if(!f) return;
+  var rd=new FileReader();
+  rd.onload=function(){addText(String(rd.result),f.name.replace(/\.[^.]*$/,''));};
+  rd.onerror=function(){setMsg('Could not read that file.',true);};
+  rd.readAsText(f); fi.value='';
+ };
+ var b1=el('button','act','Choose a GPX file'); b1.onclick=function(){fi.click()};
+ u=el('input'); u.type='url'; u.placeholder='https://\u2026/route.gpx'; u.spellcheck=false;
+ u.setAttribute('autocapitalize','off'); u.setAttribute('autocorrect','off');
+ var b2=el('button','act','Add from link'); b2.onclick=function(){addUrl(u.value)};
+ msgEl=el('div','msg');
+ if(pickMsg){msgEl.textContent=pickMsg.t;msgEl.className='msg'+(pickMsg.e?' err':'');}
+ el('div','note','Routes you add are stored only on this phone, inside this app. They will be lost if you delete the app icon, clear Safari website data, or iOS clears its storage. Keep a copy of the GPX file somewhere safe so you can add it again. Add routes from inside this app: Safari and the Home Screen app store them separately.');
+ if(route){var c=el('button','x','Cancel');c.onclick=hidePicker;}
  p.style.display='block';p.scrollTop=0;
 };
 (function init(){
  var saved=null;try{saved=localStorage.getItem(KEY)}catch(e){}
+ userRoutes=loadUser();
  fetchTxt(DIR+'routes.json').then(function(t){var l=JSON.parse(t);routes=Array.isArray(l)?l:null;}).catch(function(){routes=null;})
  .then(function(){
-  var hit=null;
-  if(routes&&saved) routes.forEach(function(r){if(r.file===saved) hit=r;});
-  if(hit) loadRoute(hit.file,hit.name);
-  else if(!routes&&saved) loadRoute(saved,saved); // list unavailable (offline, never cached): still open the last route
-  else if(routes&&routes.length===1) loadRoute(routes[0].file,routes[0].name); // only one route bundled: open it straight away
+  var all=allRoutes(),hit=null;
+  if(saved) all.forEach(function(r){if(r.key===saved) hit=r;});
+  if(hit) openRoute(hit);
+  else if(!routes&&saved&&saved.indexOf('user:')!==0) loadRoute(saved,saved); // list unavailable (offline, never cached): still open the last route
+  else if(routes&&routes.length===1&&!userRoutes.length) openRoute(all[0]); // only one route available: open it straight away
   else{routeMsg='Choose a route';showPicker();}
-  // Quietly fetch every listed route so the service worker caches them for offline use
+  // Quietly fetch every bundled route so the service worker caches them for offline use
   if(routes) setTimeout(function(){routes.forEach(function(r){fetch(DIR+r.file).catch(function(){})});},3000);
  });
 })();
