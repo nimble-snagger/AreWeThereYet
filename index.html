@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="AWTY?">
+<title>Are we there yet?</title>
+<style>
+:root{--bg:#000;--ink:#f2f7f2;--green:#35e07a;--track:#12301c;--dim:#7d9a86;--warn:#ffb020}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);
+ font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;-webkit-user-select:none;user-select:none}
+body{display:flex;flex-direction:column;justify-content:space-between;
+ padding:calc(env(safe-area-inset-top,0px) + 2vh) 5vw calc(env(safe-area-inset-bottom,0px) + 1.5vh)}
+#bar{position:relative;flex:1 1 auto;min-height:30vh;margin:2vh 0;background:var(--track);border-radius:4vw;overflow:hidden;
+ isolation:isolate;-webkit-transform:translateZ(0);transform:translateZ(0)}
+#fill{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--green);overflow:hidden;transition:width .5s linear}
+.t{position:absolute;left:0;top:0;height:100%;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+ line-height:1;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap;pointer-events:none}
+#txtl{color:var(--ink)}
+#txtd{color:#021208}
+.cap{font-size:.28em;font-weight:700;margin-top:.12em}
+#meas{position:absolute;left:-9999px;top:0;visibility:hidden;white-space:nowrap;font-size:100px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1}
+#status{text-align:center;font-size:min(6vw,4.5vh);font-weight:700;min-height:1.3em;color:var(--green)}
+#status.warn{color:var(--warn)}
+#dbg{font:11px/1.4 Menlo,monospace;color:var(--dim);text-align:center}
+#dbg button{font:inherit;color:var(--dim);background:none;border:1px solid var(--dim);border-radius:4px;padding:3px 10px;margin:4px 3px 0}
+#picker{display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:10;background:var(--bg);overflow-y:auto;
+ -webkit-overflow-scrolling:touch;padding:calc(env(safe-area-inset-top,0px) + 3vh) 5vw calc(env(safe-area-inset-bottom,0px) + 3vh)}
+#picker h1{margin:0;font-size:min(7vw,5vh);font-weight:900}
+#picker h2{margin:.2em 0 1em;font-size:min(4.5vw,3vh);font-weight:600;color:var(--dim)}
+#picker button{display:block;width:100%;text-align:left;margin:0 0 2vh;padding:2.2vh 4vw;font:inherit;color:var(--ink);
+ background:var(--track);border:2px solid transparent;border-radius:3vw;font-size:min(6vw,4vh);font-weight:800}
+#picker button small{display:block;margin-top:.25em;font-size:.6em;font-weight:600;color:var(--dim)}
+#picker button.cur{border-color:var(--green)}
+#picker button.x{background:none;border:1px solid var(--dim);color:var(--dim);text-align:center;font-size:min(5vw,3.4vh);font-weight:600}
+#picker p{color:var(--warn);font-size:min(5vw,3.4vh);font-weight:600}
+</style>
+</head>
+<body>
+<div id="bar" onclick="toggleUnits()">
+ <div id="fill"><div id="txtd" class="t"><div class="big"></div><div class="cap"></div></div></div>
+ <div id="txtl" class="t"><div class="big"></div><div class="cap"></div></div>
+</div>
+<span id="meas"></span>
+<div id="status">Loading route…</div>
+<div id="dbg"><div id="dbgline"></div>
+ <button onclick="showPicker()">Route</button><button onclick="simToggle()">Simulate</button><button onclick="resetProgress()">Reset</button></div>
+
+<div id="picker"></div>
+
+<script>
+(function(){
+'use strict';
+var VERSION='v0.4.1', MI=1609.344, R=6371008.8, DIR='routes/', KEY='rt.route';
+var route=null,total=0,shown=0,last=null,offCount=0,useKm=false;
+var routes=null,cur=null,curName='',routeMsg='Loading route…',loadId=0;
+var lastFixT=0,acc=null,dev=null,gpsMsg='',simT=null,off=false;
+function $(i){return document.getElementById(i)}
+function rad(x){return x*Math.PI/180}
+function hav(a,b){
+ var dl=rad(b[0]-a[0]),dn=rad(b[1]-a[1]);
+ var h=Math.pow(Math.sin(dl/2),2)+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.pow(Math.sin(dn/2),2);
+ return 2*R*Math.asin(Math.sqrt(h));
+}
+function parse(txt){
+ var d=new DOMParser().parseFromString(txt,'application/xml');
+ var n=d.getElementsByTagName('trkpt'); if(!n.length) n=d.getElementsByTagName('rtept');
+ var p=[];
+ for(var i=0;i<n.length;i++) p.push([parseFloat(n[i].getAttribute('lat')),parseFloat(n[i].getAttribute('lon'))]);
+ return p;
+}
+function build(p){
+ var kx=111320*Math.cos(rad(p[0][0])),ky=110540;
+ route={p:p,kx:kx,ky:ky,x:[],y:[],cum:[0]};
+ for(var i=0;i<p.length;i++){
+  route.x.push(p[i][1]*kx); route.y.push(p[i][0]*ky);
+  if(i) route.cum.push(route.cum[i-1]+hav(p[i-1],p[i]));
+ }
+ total=route.cum[p.length-1];
+}
+// Candidate matches (distance from route, position along route) for segments overlapping [lo,hi]
+function candidates(lat,lon,lo,hi){
+ var x=lon*route.kx,y=lat*route.ky,c=route.cum,out=[];
+ for(var i=0;i<c.length-1;i++){
+  if(c[i+1]<lo||c[i]>hi) continue;
+  var ax=route.x[i],ay=route.y[i],dx=route.x[i+1]-ax,dy=route.y[i+1]-ay,L=dx*dx+dy*dy;
+  var u=L?Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy)/L)):0;
+  out.push({d:Math.hypot(x-ax-u*dx,y-ay-u*dy),s:c[i]+u*(c[i+1]-c[i])});
+ }
+ return out;
+}
+function onFix(lat,lon,a,fromSim){
+ if(simT&&!fromSim) return;
+ lastFixT=Date.now(); acc=a;
+ if(!route||a>100) return;
+ var lo=0,hi=total;
+ if(last!==null&&offCount<30){lo=last-50;hi=last+800+150*offCount;}
+ var c=candidates(lat,lon,lo,hi); if(!c.length) return;
+ var dmin=Infinity,i,best=null,bc=Infinity;
+ for(i=0;i<c.length;i++) if(c[i].d<dmin) dmin=c[i].d;
+ if(last===null){
+  // First fix: near-ties (e.g. loop start/finish) resolve to the earliest position along the route
+  for(i=0;i<c.length;i++) if(c[i].d<=dmin+30&&(best===null||c[i].s<best.s)) best=c[i];
+ }else{
+  // Later fixes: nearest to the route, with a small penalty for jumping away from where we were,
+  // so a loop's start and finish (or an out-and-back) can't be confused
+  for(i=0;i<c.length;i++){var cost=c[i].d+0.05*Math.abs(c[i].s-last); if(cost<bc){bc=cost;best=c[i];}}
+ }
+ dev=best.d;
+ if(best.d>Math.max(50,2*a)){offCount++;off=true;return;}
+ off=false;offCount=0;last=best.s;
+ if(best.s>shown) shown=best.s;
+}
+function fmt(m,tot){
+ if(tot===undefined) tot=total;
+ if(tot<1000) return Math.round(m)+' m';
+ return useKm?(m/1000).toFixed(1)+' km':(m/MI).toFixed(1)+' mi';
+}
+var T0=Date.now(), ALT_MS=5000, sizeCache={}, sizeCount=0;
+// Largest font size (px) at which `text` fits the bar's width and height
+function fitSize(text){
+ var bar=$('bar'),bw=bar.clientWidth,bh=bar.clientHeight;
+ if(!bw||!bh) return 40;
+ var key=text+'|'+bw+'|'+bh; if(sizeCache[key]) return sizeCache[key];
+ var m=$('meas'); m.textContent=text;
+ var w=m.getBoundingClientRect().width||1, s=Math.max(10,Math.floor(Math.min(bh*0.5,bw*0.9*100/w)));
+ if(sizeCount>300){sizeCache={};sizeCount=0;}
+ sizeCache[key]=s; sizeCount++; return s;
+}
+function setLayer(id,big,cap,size){
+ var el=$(id); el.style.fontSize=size+'px';
+ el.children[0].textContent=big; el.children[1].textContent=cap;
+}
+function render(){
+ var tol=Math.max(8,Math.min(25,total*0.05)), done=total&&shown>=total-tol;
+ // Percentage moves in 0.2% steps, always rounded down, and only reaches 100% when finished
+ var steps=total?Math.min(499,Math.floor(shown/total*500)):0;
+ var pctTxt=!route?'--%':(done?'100%':(steps/5).toFixed(1)+'%');
+ var showDist=!!route&&!done&&Math.floor((Date.now()-T0)/ALT_MS)%2===1;
+ var big=showDist?fmt(Math.max(0,total-shown)):pctTxt, cap=!route?'':(showDist?'to go':'complete');
+ $('fill').style.width=(total?(done?100:shown/total*100):0)+'%';
+ $('txtd').style.width=$('bar').clientWidth+'px';
+ var sz=fitSize(big); setLayer('txtl',big,cap,sz); setLayer('txtd',big,cap,sz);
+ var age=lastFixT?Math.round((Date.now()-lastFixT)/1000):null, s=$('status'), msg='', warn=true;
+ if(!route) msg=routeMsg||gpsMsg||'Loading route…';
+ else if(gpsMsg) msg=gpsMsg;
+ else if(age===null) msg='Waiting for GPS…';
+ else if(age>15) msg='GPS signal lost';
+ else if(acc>100) msg='Weak GPS';
+ else if(off) msg='Off route';
+ else if(done) {msg='Finished!';warn=false;}
+ else {msg='On route';warn=false;}
+ s.textContent=msg; s.className=warn?'warn':'';
+ $('dbgline').textContent=VERSION+(curName?' | '+curName:'')+' | acc '+(acc===null?'-':Math.round(acc)+'m')+' | fix '+(age===null?'-':age+'s')+
+  ' | pos '+(shown/1000).toFixed(2)+'/'+(total/1000).toFixed(2)+'km | off-route by '+(dev===null?'-':Math.round(dev)+'m')+
+  (simT?' | SIM':'');
+}
+function pointAt(s){
+ var c=route.cum,i=0; while(i<c.length-2&&c[i+1]<s) i++;
+ var f=(s-c[i])/((c[i+1]-c[i])||1),a=route.p[i],b=route.p[i+1];
+ return [a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f];
+}
+window.simToggle=function(){
+ if(!route) return;
+ if(simT){clearInterval(simT);simT=null;return;}
+ resetProgress(); var s=0;
+ simT=setInterval(function(){
+  s+=total/240; if(s>=total){s=total;}
+  var p=pointAt(s);
+  onFix(p[0]+(Math.random()-.5)*6e-5,p[1]+(Math.random()-.5)*1e-4,8,true);
+  if(s>=total){clearInterval(simT);simT=null;}
+ },250);
+};
+window.resetProgress=function(){shown=0;last=null;offCount=0;off=false;dev=null;};
+window.toggleUnits=function(){useKm=!useKm;};
+
+function store(v){try{localStorage.setItem(KEY,v)}catch(e){}}
+function fetchTxt(u){return fetch(u).then(function(r){if(!r.ok) throw new Error('http');return r.text()})}
+function loadRoute(f,name){
+ var id=++loadId;
+ if(simT){clearInterval(simT);simT=null;}
+ route=null;total=0;resetProgress();cur=f;curName=name||f;routeMsg='Loading route…';
+ return fetchTxt(DIR+f).then(function(t){
+  if(id!==loadId) return;
+  var p=parse(t); if(p.length<2) throw new Error('no points');
+  build(p);routeMsg='';store(f);
+ }).catch(function(){if(id===loadId) routeMsg='Route file failed to load';});
+}
+function selectRoute(r){
+ if(route&&r.file===cur){hidePicker();return;}
+ if(route&&shown>0&&!confirm('Switch route? Progress will reset.')) return;
+ hidePicker();loadRoute(r.file,r.name);
+}
+function hidePicker(){$('picker').style.display='none';}
+window.showPicker=function(){
+ var p=$('picker'),b,i;
+ p.innerHTML='';
+ b=document.createElement('h1');b.textContent='Are we there yet?';p.appendChild(b);
+ b=document.createElement('h2');b.textContent='Choose a route';p.appendChild(b);
+ if(!routes||!routes.length){
+  b=document.createElement('p');b.textContent=routes?'No routes found':'Could not load the route list';p.appendChild(b);
+ }else routes.forEach(function(r){
+  var el=document.createElement('button'),s=document.createElement('small');
+  el.textContent=r.name;s.textContent=fmt(r.m,r.m);el.appendChild(s);
+  if(r.file===cur) el.className='cur';
+  el.onclick=function(){selectRoute(r)};
+  p.appendChild(el);
+ });
+ if(route){b=document.createElement('button');b.className='x';b.textContent='Cancel';b.onclick=hidePicker;p.appendChild(b);}
+ p.style.display='block';p.scrollTop=0;
+};
+(function init(){
+ var saved=null;try{saved=localStorage.getItem(KEY)}catch(e){}
+ fetchTxt(DIR+'routes.json').then(function(t){var l=JSON.parse(t);routes=Array.isArray(l)?l:null;}).catch(function(){routes=null;})
+ .then(function(){
+  var hit=null;
+  if(routes&&saved) routes.forEach(function(r){if(r.file===saved) hit=r;});
+  if(hit) loadRoute(hit.file,hit.name);
+  else if(!routes&&saved) loadRoute(saved,saved); // list unavailable (offline, never cached): still open the last route
+  else if(routes&&routes.length===1) loadRoute(routes[0].file,routes[0].name); // only one route bundled: open it straight away
+  else{routeMsg='Choose a route';showPicker();}
+  // Quietly fetch every listed route so the service worker caches them for offline use
+  if(routes) setTimeout(function(){routes.forEach(function(r){fetch(DIR+r.file).catch(function(){})});},3000);
+ });
+})();
+
+if(navigator.geolocation){
+ navigator.geolocation.watchPosition(function(p){
+  gpsMsg=''; onFix(p.coords.latitude,p.coords.longitude,p.coords.accuracy,false);
+ },function(e){
+  gpsMsg=e.code===1?'Location denied - allow it in Settings':'GPS error: '+e.message;
+ },{enableHighAccuracy:true,maximumAge:0,timeout:30000});
+}else gpsMsg='No GPS available';
+
+function wake(){if('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(function(){});}
+wake(); document.addEventListener('visibilitychange',function(){if(!document.hidden) wake();});
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function(){});
+setInterval(render,500); render();
+})();
+</script>
+</body>
+</html>
