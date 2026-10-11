@@ -2,7 +2,7 @@
 // routes/routes.json (the route list) is the exception: network first (short timeout), so new routes appear straight away.
 // Bump CACHE when you change index.html and want phones to pick it up promptly.
 // Adding or changing .gpx files does not need a bump: the page re-fetches every listed route each time it opens online.
-var CACHE='routetracker-v0.5.0';
+var CACHE='routetracker-v0.6.0';
 var FILES=['./','index.html','manifest.webmanifest','routes/routes.json'];
 self.addEventListener('install',function(e){
  e.waitUntil(caches.open(CACHE).then(function(c){

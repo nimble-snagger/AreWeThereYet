@@ -4,7 +4,7 @@ A phone web app that shows live progress along a pre-planned walking route, big 
 
 It works offline once loaded, uses only the phone's GPS, and is hosted for free on GitHub Pages. Live app: **https://nimble-snagger.github.io/AreWeThereYet/**
 
-Current version: **v0.5.0**.
+Current version: **v0.6.0**.
 
 ## What it does
 
@@ -12,9 +12,25 @@ Current version: **v0.5.0**.
 - Shows progress as a large bar with the figure inside it. The text changes colour as the bar fills across it, so it stays readable.
 - Alternates every 5 seconds between **percentage complete** (e.g. `42.6%`) and **distance to go** (e.g. `5.7 mi`). Tap the bar to switch between miles and kilometres.
 - Moves in 0.2% steps, always rounded down. It only shows 100% when you have finished.
+- Shows distances in metres (rounded to 5 m) for the last 160 m of a leg or route, instead of "0.0 mi".
+- Shows a second, blue **checkpoint bar** below the main one when the route has named waypoints (see below).
 - Shows a status line: `On route`, `Off route`, `Weak GPS`, `GPS signal lost`, `Waiting for GPS…` or `Finished!`.
 - Keeps the screen awake while it is open.
 - Remembers the last route you chose and reopens on it.
+
+### The checkpoint bar
+
+When a GPX contains named waypoints, a second bar tracks progress from one checkpoint to the next:
+
+- Above it is the name of the next checkpoint, for example `Next: Checkpoint 3 - Painswick`. Only the name is shown, not the description or coordinates.
+- It shows a whole-number percentage of the current leg, alternating every 5 seconds (in step with the main bar) with the distance to the next checkpoint.
+- Passing a checkpoint (within the same 25 m tolerance as the finish) moves it on to the next leg. On the last leg it targets the finish, and at the end it shows `Finished:` with the finish waypoint's name.
+
+**Which waypoints count as checkpoints:** only waypoints that have a **name**. OS Maps creates an unnamed waypoint for every point you drop with snapping off; those are ignored. Either OS Maps export (track or route) works, because the waypoints are the same in both.
+
+- A waypoint at the start of the route, or at the end (the finish), is not a checkpoint in its own right. The end one just supplies the finish name.
+- Waypoints are placed along the route in the order they appear, and sorted by position along the route. A waypoint more than 150 m from the route is ignored.
+- If a route has no named waypoints other than the start and finish, there is no second bar and the main bar uses the whole screen.
 
 ### How progress is worked out
 
@@ -47,11 +63,11 @@ Open the route list and use **Add a route**:
 - **Choose a GPX file** opens the Files picker (iCloud, Downloads, AirDrop, email attachments and so on).
 - **Add from link** downloads a GPX from a web address. The site has to allow it: GitHub links work (including normal `github.com/.../blob/...` links), but many file-sharing links do not. If a link fails, download the file and use the file picker instead.
 
-Added routes are labelled "on this phone only" and have a **Remove** button. They work offline.
+Added routes are labelled "on this phone only" and have a **Remove** button. They work offline, and keep the names of any named waypoints so the checkpoint bar works for them too.
 
-**Important: added routes are not permanently saved.** They are stored only on that phone, inside the app. They will be lost if you delete the Home Screen icon, clear Safari's website data, or iOS clears the storage. Always keep a copy of the GPX file somewhere safe so you can add it again. Safari and the Home Screen app store routes separately, so add routes from inside the Home Screen app. Routes in the repo are not affected by any of this.
+**Important: added routes are not permanently saved** (the app shows this in an orange warning box next to the add buttons). They are stored only on that phone, inside the app. They will be lost if you delete the Home Screen icon, clear Safari's website data, or iOS clears the storage. Always keep a copy of the GPX file somewhere safe so you can add it again. Safari and the Home Screen app store routes separately, so add routes from inside the Home Screen app. Routes in the repo are not affected by any of this.
 
-When a route is added, points closer than 3 m together are dropped to keep it small, and the names (only the names) of any named waypoints are kept for later use.
+When a route is added, points closer than 3 m together are dropped to keep it small.
 
 ## Setting it up
 
@@ -97,6 +113,12 @@ The app and all listed routes are cached on the phone, so it keeps working with 
 
 ## Version history
 
+**v0.6.0**
+- Checkpoint bar: a second bar tracks progress between named waypoints, with the next checkpoint's name shown above it. It is hidden when a route has no checkpoints.
+- Both bars alternate between percentage and distance to go together.
+- Distances under about 160 m are shown in metres.
+- The storage warning for added routes is now an orange box with a heading, so it is harder to miss.
+
 **v0.5.0**
 - Add routes from the phone: pick a GPX file, or paste a link. Added routes are saved on the phone, work offline, and can be removed.
 - Clear warning that added routes are stored only on the phone and can be lost; keep a copy of the GPX elsewhere.
@@ -129,7 +151,4 @@ The app and all listed routes are cached on the phone, so it keeps working with 
 
 ## Planned
 
-- **v0.6.0:** a second bar tracking progress between checkpoints, in whole percentages, with the checkpoint's name shown. Checkpoints will be the **named** waypoints in the GPX; unnamed waypoints (OS Maps creates one for every point dropped with snapping off) are ignored. Either the OS Maps "track" or "route" export works.
-- Possible later: pace and ETA.
-
-Waypoints in the GPX are currently ignored; only the route line is used.
+- Possible later: pace and ETA, a "checkpoint reached" cue, and showing distance walked.
